@@ -72,6 +72,7 @@ Every command below assumes you've already done `unset GITHUB_TOKEN` if relevant
 | SSH in | `gh codespace ssh -c <name>` |
 | Run a one-off command | `gh codespace ssh -c <name> -- "docker ps"` |
 | Forward port to local | `gh codespace ports forward 4566:4566 -c <name>` |
+| Forward floci and WebUI(StackPort) port to local | `gh codespace ports forward 4566:4566 8080:8080 -c <name>` |
 | List forwarded ports | `gh codespace ports -c <name>` |
 | Make a port public | `gh codespace ports visibility 4566:public -c <name>` |
 | Stop (pause) | `gh codespace stop -c <name>` |
