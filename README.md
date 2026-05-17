@@ -176,6 +176,64 @@ gh codespace code -c floci-<id>
 Floci container has `restart: unless-stopped`, so it auto-starts when the
 codespace resumes. The `floci-data` named volume persists across stops.
 
+### Robust tunnel pattern (wake-then-forward)
+
+`gh codespace ports forward` auto-wakes the codespace, but if you run it the
+instant the codespace is mid-`ShuttingDown` or just woken, the inner ports may
+not be listening yet and you'll see:
+
+```
+error connecting to tunnel: ... ssh: rejected: connect failed (Connection refused)
+```
+
+Wake first, wait for compose, then tunnel:
+
+```bash
+unset GITHUB_TOKEN
+gh codespace ssh -c floci-46wxp4w9wvpcp65 -- "true"   # wakes + waits
+sleep 5                                                # let compose stabilize
+gh codespace ports forward 4566:4566 -c floci-46wxp4w9wvpcp65 &
+gh codespace ports forward 8080:8080 -c floci-46wxp4w9wvpcp65 &
+```
+
+Or simply retry the forward — the second attempt usually works because the
+first one already woke the codespace.
+
+For extra safety, wait for containers to actually be healthy:
+
+```bash
+unset GITHUB_TOKEN
+CS=floci-46wxp4w9wvpcp65
+gh codespace ssh -c $CS -- "true"
+until gh codespace ssh -c $CS -- "docker ps --format '{{.Names}} {{.Status}}' | grep -q 'floci.*healthy'"; do
+  echo "waiting for floci..."; sleep 3
+done
+gh codespace ports forward 4566:4566 -c $CS &
+gh codespace ports forward 8080:8080 -c $CS &
+```
+
+### One-liner alias
+
+Drop into `~/.bashrc` / `~/.zshrc`:
+
+```bash
+floci-up() {
+  local CS=floci-46wxp4w9wvpcp65
+  unset GITHUB_TOKEN
+  gh codespace ssh -c "$CS" -- "true" && sleep 5
+  gh codespace ports forward 4566:4566 -c "$CS" &
+  gh codespace ports forward 8080:8080 -c "$CS" &
+  echo "Tunnels backgrounded. http://localhost:8080 ready."
+}
+
+floci-down() {
+  local CS=floci-46wxp4w9wvpcp65
+  unset GITHUB_TOKEN
+  pkill -f "gh codespace ports forward.*$CS"
+  gh codespace stop -c "$CS"
+}
+```
+
 ---
 
 ## Data lifecycle
