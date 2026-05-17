@@ -1,13 +1,15 @@
 # Floci on GitHub Codespaces
 
 Lightweight devcontainer that runs the [Floci](https://floci.io) AWS emulator
-(native image) inside a free-tier GitHub Codespace and tunnels port `4566` back
-to your local laptop, so the AWS CLI / SDKs on your machine talk to a real-AWS-API
-running in the cloud.
+(native image) plus the [StackPort](https://github.com/DaviReisVieira/stackport)
+web UI inside a free-tier GitHub Codespace. Tunnel ports `4566` (AWS API) and
+`8080` (web UI) back to your local laptop.
 
-- Codespace runtime: ~13 MiB idle (Floci native), sub-second startup
+- Codespace runtime: ~13 MiB idle (Floci) + ~150 MB (StackPort)
 - Base image: `mcr.microsoft.com/devcontainers/base:ubuntu` (~600 MB, vs universal ~20 GB)
 - Free-tier safe: fits `basicLinux32gb` (2-core / 4 GB / 32 GB)
+- Web UI covers 35 AWS services with 8 dedicated rich browsers
+  (S3, DynamoDB, Lambda, SQS, IAM, EC2, CloudWatch Logs, Secrets Manager)
 
 ---
 
@@ -17,10 +19,11 @@ running in the cloud.
 +---------------------+         +---------------------------------------+
 |  Your local laptop  |         |        GitHub Codespace VM            |
 |                     |  WSS    |                                       |
-|  aws --endpoint-url |<-tunnel-+--+  Dev container (ubuntu-base)        |
-|  http://:4566       |         |  +--+ docker-in-docker                |
-|                     |         |     +--+ floci container :4566        |
-+---------------------+         |        +--+ named volume floci-data   |
+|  aws cli  :4566     |<-tunnel-+--+  Dev container (ubuntu-base)        |
+|  browser  :8080     |<-tunnel-+  +--+ docker-in-docker                 |
+|                     |         |     +--+ floci      :4566 (AWS API)   |
+|                     |         |     +--+ stackport  :8080 (Web UI)    |
++---------------------+         |        +--+ floci-data named volume   |
                                 +---------------------------------------+
 ```
 
@@ -98,11 +101,15 @@ gh codespace create \
 # 2. Wait for state = Available
 gh codespace list
 
-# 3. Forward Floci's port to your local laptop (run in a dedicated terminal)
-gh codespace ports forward 4566:4566 -c floci-<id>
+# 3a. Forward BOTH ports to local laptop (one terminal)
+gh codespace ports forward 4566:4566 8080:8080 -c floci-<id>
 # Leave this terminal running. Closing it tears down the tunnel.
 
-# 4. In a NEW local terminal, set AWS env + smoke test
+# 3b. Open the web UI in your browser
+xdg-open http://localhost:8080      # Linux
+# open http://localhost:8080        # macOS
+
+# 4. In a NEW local terminal, use the AWS CLI directly
 export AWS_ENDPOINT_URL=http://localhost:4566
 export AWS_DEFAULT_REGION=us-east-1
 export AWS_ACCESS_KEY_ID=test
@@ -111,10 +118,33 @@ export AWS_SECRET_ACCESS_KEY=test
 aws s3 mb s3://test
 echo hi | aws s3 cp - s3://test/hello.txt
 aws s3 ls s3://test/
+# Refresh StackPort browser tab to see the new bucket and object.
 ```
 
 Persist the env vars across shells by adding the 4 `export` lines to
 `~/.bashrc` / `~/.zshrc`.
+
+## Web UI: StackPort
+
+Browser-based AWS resource browser served from the codespace, fully open-source
+([StackPort](https://github.com/DaviReisVieira/stackport), MIT license).
+
+| URL | Notes |
+|---|---|
+| `http://localhost:8080` (via tunnel) | Recommended. Run `gh codespace ports forward 8080:8080 -c <name>` first. |
+| `https://<codespace>-8080.app.github.dev` | Direct Codespaces auto-forwarded URL. Private to your GH session by default. Get exact URL via `gh codespace ports -c <name>`. |
+
+Features available out of the box:
+
+- **Dashboard** — service health + live resource counts across all 35 services
+- **Dedicated browsers** — S3 (upload/download/folders), DynamoDB (query/scan), Lambda (invoke), SQS (send/receive), IAM, EC2, CloudWatch Logs, Secrets Manager
+- **Generic resource table** — JSON detail + export for all other services
+- **Tag management** — read/write tags across 21 resource types
+- **Live updates** via WebSocket
+
+`STACKPORT_ALLOW_WRITES=true` is set in `docker-compose.yml`, so the UI can
+create/delete resources (e.g. drop S3 buckets, purge SQS queues). Flip to
+`false` to enforce read-only mode.
 
 ---
 
@@ -308,7 +338,7 @@ codespace command on your personal repo.
 | File | Purpose |
 |---|---|
 | [.devcontainer/devcontainer.json](.devcontainer/devcontainer.json) | Devcontainer config: base image, features (DinD, aws-cli, sshd), env vars, port forward, postCreate |
-| [.devcontainer/docker-compose.yml](.devcontainer/docker-compose.yml) | Floci service, port 4566, named volume |
+| [.devcontainer/docker-compose.yml](.devcontainer/docker-compose.yml) | Floci service (`:4566`) + StackPort web UI (`:8080`), named volume |
 | [README.md](README.md) | This document |
 | [.gitignore](.gitignore) | Ignore local data dumps, .env |
 
